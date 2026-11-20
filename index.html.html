@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arquitectura Híbrida Satelital (LEO + Wi-Fi Mesh + FV) | UNAD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background-color: #f1f5f9; color: #0f172a; }
+        .mono { font-variant-numeric: tabular-nums; }
+        .packet-flow { stroke-dasharray: 8 6; animation: flowAnim 1.2s linear infinite; }
+        .packet-flow-reverse { stroke-dasharray: 8 6; animation: flowRevAnim 1.2s linear infinite; }
+        .energy-flow { stroke-dasharray: 6 6; animation: flowAnim 1.8s linear infinite; }
+        @keyframes flowAnim { to { stroke-dashoffset: -28; } }
+        @keyframes flowRevAnim { to { stroke-dashoffset: 28; } }
+        .node-btn { cursor: pointer; transition: transform 0.15s ease; }
+        .node-btn:hover { transform: scale(1.03); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Header Institucional -->
+    <header class="bg-slate-900 text-white border-b-4 border-emerald-500 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div class="flex items-center gap-3.5">
+                <div class="bg-emerald-500/20 border border-emerald-400 text-emerald-300 p-3 rounded-xl text-2xl">
+                    <i class="fa-solid fa-tower-broadcast"></i>
+                </div>
+                <div>
+                    <div class="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wider text-emerald-300 font-bold">
+                        <span>UNAD • Proyecto de Ingeniería I (202337120)</span>
+                        <span>•</span>
+                        <span>Etapa 4: Práctica Simulada (ODS 9)</span>
+                    </div>
+                    <h1 class="text-lg md:text-xl font-bold tracking-tight text-white">
+                        Arquitectura Híbrida Satelital (LEO + Wi-Fi Mesh + FV)
+                    </h1>
+                </div>
+            </div>
+
+            <!-- Controles rápidos de simulación -->
+            <div class="flex flex-wrap items-center gap-2">
+                <button id="btn-play" onclick="toggleDayCycle()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow">
+                    <i class="fa-solid fa-play mr-1"></i> Simular Ciclo 24h
+                </button>
+                <button onclick="setPreset('nominal')" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-semibold transition">
+                    Diseño Base (Etapa 3)
+                </button>
+                <button onclick="setPreset('congestion')" class="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-xs font-semibold transition">
+                    Pico Escolar (52 Usr)
+                </button>
+                <button onclick="setPreset('cloud')" class="px-3 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 text-xs font-semibold transition">
+                    Día Nublado (2.2 HSP)
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-6 space-y-6 flex-1 w-full">
+
+        <!-- SECCIÓN 1: TOPOLOGÍA INTERACTIVA VIVA -->
+        <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
+                <div>
+                    <h2 class="text-sm font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                        <i class="fa-solid fa-diagram-project text-emerald-600"></i>
+                        1. Topología Interactiva del Sistema (Haz clic en los Nodos Mesh o en el Gateway QoS)
+                    </h2>
+                    <p class="text-xs text-slate-500">
+                        Prueba la autorrecuperación de la red apagando/encendiendo nodos Mesh o desactivando el moldeado de tráfico QoS (CIR/MIR).
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="status-pill" class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        ● SISTEMA ÓPTIMO (TODOS LOS KPIs EN META)
+                    </span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+                <!-- Diagrama SVG Interactivo -->
+                <div class="lg:col-span-8 bg-slate-900 rounded-xl p-3 border border-slate-800 overflow-x-auto">
+                    <svg id="topology-svg" viewBox="0 0 820 390" class="w-full h-auto select-none">
+                        <!-- Fondos de zona -->
+                        <rect x="10" y="10" width="800" height="245" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+                        <text x="24" y="30" fill="#38bdf8" font-size="11" font-weight="bold">A. FLUJO BIDIRECCIONAL DE DATOS (BACKHAUL LEO → GATEWAY QoS → RED MESH 802.11ax)</text>
+
+                        <rect x="10" y="268" width="800" height="112" rx="12" fill="#1c1917" stroke="#78350f" stroke-width="1.5"/>
+                        <text x="24" y="288" fill="#fbbf24" font-size="11" font-weight="bold">B. SUBSISTEMA FOTOVOLTAICO OFF-GRID (24 V DC • AUTONOMÍA ≥ 24H)</text>
+
+                        <!-- Enlaces de Datos -->
+                        <line x1="135" y1="130" x2="215" y2="130" stroke="#38bdf8" stroke-width="3" class="packet-flow"/>
+                        <line x1="345" y1="130" x2="430" y2="130" stroke="#10b981" stroke-width="3" class="packet-flow"/>
+
+                        <!-- Enlaces Gateway -> Nodos Mesh -->
+                        <line id="link-gw-n1" x1="430" y1="115" x2="515" y2="75" stroke="#10b981" stroke-width="2.5" class="packet-flow"/>
+                        <line id="link-gw-n2" x1="430" y1="145" x2="515" y2="185" stroke="#10b981" stroke-width="2.5" class="packet-flow"/>
+
+                        <!-- Enlaces Troncal Mesh (Redundancia HWMP entre nodos) -->
+                        <line id="link-n1-n2" x1="565" y1="98" x2="565" y2="162" stroke="#6366f1" stroke-width="2" stroke-dasharray="4 4"/>
+                        <line id="link-n1-n3" x1="615" y1="75" x2="685" y2="75" stroke="#10b981" stroke-width="2.5" class="packet-flow"/>
+                        <line id="link-n2-n4" x1="615" y1="185" x2="685" y2="185" stroke="#10b981" stroke-width="2.5" class="packet-flow"/>
+                        <line id="link-n3-n4" x1="735" y1="98" x2="735" y2="162" stroke="#6366f1" stroke-width="2" stroke-dasharray="4 4"/>
+                        <!-- Enlaces diagonales de respaldo dinámico -->
+                        <line id="link-n1-n4" x1="615" y1="88" x2="685" y2="172" stroke="#475569" stroke-width="1.5" stroke-dasharray="3 3"/>
+                        <line id="link-n2-n3" x1="615" y1="172" x2="685" y2="88" stroke="#475569" stroke-width="1.5" stroke-dasharray="3 3"/>
+
+                        <!-- Bloque 1: Satélite + Terminal LEO -->
+                        <g transform="translate(22, 65)">
+                            <rect width="115" height="130" rx="10" fill="#0f172a" stroke="#38bdf8" stroke-width="2"/>
+                            <text x="57" y="24" text-anchor="middle" fill="#38bdf8" font-size="11" font-weight="bold">SATÉLITE LEO</text>
+                            <text x="57" y="42" text-anchor="middle" fill="#e2e8f0" font-size="10">Bandas Ku / Ka</text>
+                            <line x1="12" y1="54" x2="103" y2="54" stroke="#334155"/>
+                            <text x="57" y="72" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold">Terminal LEO</text>
+                            <text x="57" y="88" text-anchor="middle" fill="#94a3b8" font-size="9.5">200 Mbps DL</text>
+                            <text x="57" y="102" text-anchor="middle" fill="#94a3b8" font-size="9.5">25 Mbps UL</text>
+                            <rect x="20" y="109" width="75" height="15" rx="4" fill="#1e3a8a"/>
+                            <text x="57" y="120" text-anchor="middle" fill="#93c5fd" font-size="9" font-weight="bold">Carga: 100 W</text>
+                        </g>
+
+                        <!-- Bloque 2: Gateway Seguridad y QoS (Interactivo) -->
+                        <g class="node-btn" onclick="toggleQoS()" transform="translate(215, 58)">
+                            <rect id="gw-box" width="135" height="145" rx="10" fill="#0f172a" stroke="#10b981" stroke-width="2.5"/>
+                            <text x="67" y="22" text-anchor="middle" fill="#34d399" font-size="11" font-weight="bold">GATEWAY QoS</text>
+                            <text x="67" y="37" text-anchor="middle" fill="#cbd5e1" font-size="9.5">Firewall + VLANs</text>
+                            <rect id="qos-pill-svg" x="15" y="46" width="105" height="20" rx="5" fill="#065f46"/>
+                            <text id="qos-text-svg" x="67" y="59" text-anchor="middle" fill="#6ee7b7" font-size="9.5" font-weight="bold">QoS: ACTIVO (4:1)</text>
+                            <text id="gw-mir-svg" x="67" y="83" text-anchor="middle" fill="#f8fafc" font-size="9.5">MIR: 4.82 Mbps</text>
+                            <text id="gw-cir-svg" x="67" y="98" text-anchor="middle" fill="#f8fafc" font-size="9.5">CIR: 1.21 Mbps</text>
+                            <text x="67" y="114" text-anchor="middle" fill="#94a3b8" font-size="8.5">(Clic para alternar QoS)</text>
+                            <rect x="25" y="122" width="85" height="15" rx="4" fill="#064e3b"/>
+                            <text x="67" y="133" text-anchor="middle" fill="#6ee7b7" font-size="9" font-weight="bold">Carga: 15 W</text>
+                        </g>
+
+                        <!-- Bloque 3: Nodos Mesh Interactivos (Clic para apagar/encender) -->
+                        <!-- Nodo 1 -->
+                        <g class="node-btn" onclick="toggleNode(1)" transform="translate(515, 45)">
+                            <rect id="node1-box" width="100" height="54" rx="8" fill="#0f172a" stroke="#10b981" stroke-width="2"/>
+                            <text x="50" y="18" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Nodo Mesh 1</text>
+                            <text x="50" y="32" text-anchor="middle" fill="#93c5fd" font-size="8.5">Escuela Rural</text>
+                            <text id="node1-st" x="50" y="46" text-anchor="middle" fill="#34d399" font-size="8.5" font-weight="bold">● ON (12 W)</text>
+                        </g>
+
+                        <!-- Nodo 2 -->
+                        <g class="node-btn" onclick="toggleNode(2)" transform="translate(515, 160)">
+                            <rect id="node2-box" width="100" height="54" rx="8" fill="#0f172a" stroke="#10b981" stroke-width="2"/>
+                            <text x="50" y="18" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Nodo Mesh 2</text>
+                            <text x="50" y="32" text-anchor="middle" fill="#93c5fd" font-size="8.5">Centro Comunal</text>
+                            <text id="node2-st" x="50" y="46" text-anchor="middle" fill="#34d399" font-size="8.5" font-weight="bold">● ON (12 W)</text>
+                        </g>
+
+                        <!-- Nodo 3 -->
+                        <g class="node-btn" onclick="toggleNode(3)" transform="translate(685, 45)">
+                            <rect id="node3-box" width="105" height="54" rx="8" fill="#0f172a" stroke="#10b981" stroke-width="2"/>
+                            <text x="52" y="18" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Nodo Mesh 3</text>
+                            <text x="52" y="32" text-anchor="middle" fill="#93c5fd" font-size="8.5">Puesto de Salud</text>
+                            <text id="node3-st" x="52" y="46" text-anchor="middle" fill="#34d399" font-size="8.5" font-weight="bold">● ON (12 W)</text>
+                        </g>
+
+                        <!-- Nodo 4 -->
+                        <g class="node-btn" onclick="toggleNode(4)" transform="translate(685, 160)">
+                            <rect id="node4-box" width="105" height="54" rx="8" fill="#0f172a" stroke="#10b981" stroke-width="2"/>
+                            <text x="52" y="18" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">Nodo Mesh 4</text>
+                            <text x="52" y="32" text-anchor="middle" fill="#93c5fd" font-size="8.5">Sector Viviendas</text>
+                            <text id="node4-st" x="52" y="46" text-anchor="middle" fill="#34d399" font-size="8.5" font-weight="bold">● ON (12 W)</text>
+                        </g>
+
+                        <text x="650" y="238" text-anchor="middle" fill="#94a3b8" font-size="9.5">
+                            Haz clic sobre cualquier Nodo Mesh para simular caída y reenrutamiento dinámico HWMP
+                        </text>
+
+                        <!-- Subsistema Energético (Parte inferior del SVG) -->
+                        <line x1="185" y1="330" x2="245" y2="330" stroke="#fbbf24" stroke-width="3" class="energy-flow"/>
+                        <line x1="395" y1="330" x2="455" y2="330" stroke="#fbbf24" stroke-width="3" class="energy-flow"/>
+                        <line x1="615" y1="330" x2="665" y2="330" stroke="#34d399" stroke-width="3" class="energy-flow"/>
+
+                        <g transform="translate(25, 298)">
+                            <rect width="160" height="66" rx="8" fill="#292524" stroke="#f59e0b" stroke-width="1.8"/>
+                            <text x="80" y="20" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="bold">Arreglo Solar FV</text>
+                            <text id="svg-pv-cap" x="80" y="36" text-anchor="middle" fill="#fef3c7" font-size="9.5">1.45 kWp • 4.5 HSP</text>
+                            <text id="svg-pv-gen" x="80" y="53" text-anchor="middle" fill="#34d399" font-size="9.5" font-weight="bold">Gen: 4.89 kWh/día</text>
+                        </g>
+
+                        <g transform="translate(245, 298)">
+                            <rect width="150" height="66" rx="8" fill="#292524" stroke="#f59e0b" stroke-width="1.8"/>
+                            <text x="75" y="20" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="bold">Controlador MPPT</text>
+                            <text x="75" y="36" text-anchor="middle" fill="#fef3c7" font-size="9.5">Eficiencia η = 0.75</text>
+                            <text x="75" y="53" text-anchor="middle" fill="#cbd5e1" font-size="9">Regulación 24 V DC</text>
+                        </g>
+
+                        <g transform="translate(455, 298)">
+                            <rect width="160" height="66" rx="8" fill="#292524" stroke="#10b981" stroke-width="1.8"/>
+                            <text x="80" y="20" text-anchor="middle" fill="#34d399" font-size="10" font-weight="bold">Banco Baterías 24V</text>
+                            <text x="80" y="36" text-anchor="middle" fill="#fef3c7" font-size="9.5">200 Ah LiFePO4 (DoD 80%)</text>
+                            <text id="svg-bat-soc" x="80" y="53" text-anchor="middle" fill="#6ee7b7" font-size="9.5" font-weight="bold">Carga: 88% • Aut: 23.6h</text>
+                        </g>
+
+                        <g transform="translate(665, 298)">
+                            <rect width="130" height="66" rx="8" fill="#292524" stroke="#38bdf8" stroke-width="1.8"/>
+                            <text x="65" y="20" text-anchor="middle" fill="#38bdf8" font-size="10" font-weight="bold">Cargas Críticas</text>
+                            <text id="svg-load-w" x="65" y="37" text-anchor="middle" fill="#ffffff" font-size="10.5" font-weight="bold">Potencia: 163 W</text>
+                            <text id="svg-load-ed" x="65" y="53" text-anchor="middle" fill="#93c5fd" font-size="9">Ed: 3.91 kWh/día</text>
+                        </g>
+                    </svg>
+                </div>
+
+                <!-- Panel Derecho: Controles y Diagnóstico en Vivo -->
+                <div class="lg:col-span-4 space-y-3.5">
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600">Parámetros Operativos</h3>
+
+                        <!-- Usuarios -->
+                        <div>
+                            <div class="flex justify-between text-xs font-semibold mb-1">
+                                <span>Usuarios Concurrentes</span>
+                                <span id="lbl-users" class="text-emerald-700 font-bold mono">40 dispositivos</span>
+                            </div>
+                            <input type="range" id="in-users" min="5" max="60" value="40" class="w-full accent-emerald-600 cursor-pointer" oninput="updateAll()">
+                            <div class="flex justify-between text-[10px] text-slate-400">
+                                <span>5</span><span>Diseño Etapa 3: 40</span><span>60</span>
+                            </div>
+                        </div>
+
+                        <!-- Hora del día -->
+                        <div>
+                            <div class="flex justify-between text-xs font-semibold mb-1">
+                                <span>Hora del Día Simulada</span>
+                                <span id="lbl-hour" class="text-indigo-700 font-bold mono">12:00 h (Mediodía)</span>
+                            </div>
+                            <input type="range" id="in-hour" min="0" max="23" value="12" class="w-full accent-indigo-600 cursor-pointer" oninput="updateAll()">
+                            <div class="flex justify-between text-[10px] text-slate-400">
+                                <span>00:00</span><span>12:00 (Pico Solar)</span><span>23:00</span>
+                            </div>
+                        </div>
+
+                        <!-- Recurso Solar HSP -->
+                        <div>
+                            <div class="flex justify-between text-xs font-semibold mb-1">
+                                <span>Horas Solares Pico (HSP)</span>
+                                <span id="lbl-hsp" class="text-amber-700 font-bold mono">4.5 h/día</span>
+                            </div>
+                            <input type="range" id="in-hsp" min="1.5" max="6.5" step="0.1" value="4.5" class="w-full accent-amber-500 cursor-pointer" oninput="updateAll()">
+                            <div class="flex justify-between text-[10px] text-slate-400">
+                                <span>Nublado (1.5)</span><span>Diseño: 4.5</span><span>Soleado (6.5)</span>
+                            </div>
+                        </div>
+
+                        <!-- Interruptor QoS -->
+                        <div class="pt-1 flex items-center justify-between border-t border-slate-200">
+                            <div>
+                                <div class="text-xs font-bold text-slate-800">Política QoS (CIR/MIR 4:1)</div>
+                                <div class="text-[11px] text-slate-500">Evita acaparamiento de banda</div>
+                            </div>
+                            <button id="btn-qos" onclick="toggleQoS()" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">
+                                ACTIVADO
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Bitácora inteligente de comportamiento -->
+                    <div id="live-diagnosis" class="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs text-emerald-950 space-y-1">
+                        <div class="font-bold flex items-center gap-1.5">
+                            <i class="fa-solid fa-circle-check text-emerald-600"></i> Interpretación de Ingeniería:
+                        </div>
+                        <p id="diagnosis-text" class="leading-relaxed">
+                            Con 40 usuarios concurrentes y 4 nodos Mesh activos, el Gateway aplica shaping 4:1 garantizando 1.21 Mbps de CIR por usuario y RTT de 35.2 ms (&lt; 40 ms). El arreglo de 1.45 kWp genera 4.89 kWh/día, superando el consumo de 3.91 kWh/día.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECCIÓN 2: KPIS Y DESVÍOS MATEMÁTICOS (MODELO CONCEPTUAL VS EXPERIMENTAL) -->
+        <section class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div class="flex justify-between text-[11px] text-slate-500 font-semibold">
+                    <span>MIR Experimental</span>
+                    <span class="mono">Diseño: 5.00</span>
+                </div>
+                <div id="kpi-mir" class="text-2xl font-bold text-slate-900 mt-1 mono">4.82 Mbps</div>
+                <div id="kpi-mir-dev" class="text-[11px] font-semibold text-amber-600 mt-1 mono">Desvío: -3.6% (Overhead IP)</div>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div class="flex justify-between text-[11px] text-slate-500 font-semibold">
+                    <span>CIR Garantizado</span>
+                    <span class="mono">Diseño: 1.25</span>
+                </div>
+                <div id="kpi-cir" class="text-2xl font-bold text-emerald-700 mt-1 mono">1.21 Mbps</div>
+                <div id="kpi-cir-dev" class="text-[11px] font-semibold text-emerald-600 mt-1 mono">Desvío: -3.2% • Cumple</div>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div class="flex justify-between text-[11px] text-slate-500 font-semibold">
+                    <span>Latencia (RTT)</span>
+                    <span class="mono">Meta: &lt; 40 ms</span>
+                </div>
+                <div id="kpi-rtt" class="text-2xl font-bold text-slate-900 mt-1 mono">35.2 ms</div>
+                <div id="kpi-rtt-dev" class="text-[11px] font-semibold text-emerald-600 mt-1 mono">✓ 4.8 ms bajo el umbral</div>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div class="flex justify-between text-[11px] text-slate-500 font-semibold">
+                    <span>Pérdida Paquetes</span>
+                    <span class="mono">Meta: &lt; 1.0%</span>
+                </div>
+                <div id="kpi-loss" class="text-2xl font-bold text-slate-900 mt-1 mono">0.37 %</div>
+                <div id="kpi-loss-dev" class="text-[11px] font-semibold text-emerald-600 mt-1 mono">✓ Uptime estimado: 99.4%</div>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm col-span-2 lg:col-span-1">
+                <div class="flex justify-between text-[11px] text-slate-500 font-semibold">
+                    <span>Balance Solar 24h</span>
+                    <span class="mono">Ed: 3.91 kWh</span>
+                </div>
+                <div id="kpi-gen" class="text-2xl font-bold text-amber-600 mt-1 mono">4.89 kWh/d</div>
+                <div id="kpi-en-dev" class="text-[11px] font-semibold text-emerald-600 mt-1 mono">Superávit: +25.1%</div>
+            </div>
+        </section>
+
+        <!-- SECCIÓN 3: GRÁFICOS DE DISPERSIÓN Y CURVA DE AUTONOMÍA -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-800">Gráfico de Dispersión: Usuarios Concurrentes vs. Latencia RTT (ms)</h3>
+                <p class="text-xs text-slate-500 mb-3">Contraste experimental de retardo frente al límite crítico de 40 ms establecido en la Etapa 3.</p>
+                <canvas id="scatterChart" height="195"></canvas>
+            </div>
+
+            <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-800">Balance Energético Horario (24h): Generación FV vs. Estado de Batería</h3>
+                <p class="text-xs text-slate-500 mb-3">Comportamiento del banco 24 V / 200 Ah alimentando la carga continua de <span id="chart-w-lbl">163 W</span>.</p>
+                <canvas id="energyChart" height="195"></canvas>
+            </div>
+        </section>
+
+        <!-- SECCIÓN 4: MATRIZ DE DATOS EXPERIMENTALES (PARA INFORME TÉCNICO) -->
+        <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                <div>
+                    <h2 class="text-sm font-bold uppercase tracking-wider text-slate-700">
+                        2. Tabla de Datos Experimentales y Desvíos Matemáticos
+                    </h2>
+                    <p class="text-xs text-slate-500">Cada corrida registra las mediciones simuladas y su desviación frente al diseño conceptual de la Etapa 3.</p>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="addCurrentRun()" class="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition">
+                        <i class="fa-solid fa-plus mr-1"></i> Capturar Prueba Actual
+                    </button>
+                    <button onclick="downloadCSV()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition">
+                        <i class="fa-solid fa-download mr-1"></i> Descargar CSV
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-700 border-b border-slate-200">
+                            <th class="py-2.5 px-3 font-bold">Corrida</th>
+                            <th class="py-2.5 px-3 font-bold">Condición Evaluada</th>
+                            <th class="py-2.5 px-3 font-bold">Usr</th>
+                            <th class="py-2.5 px-3 font-bold">Nodos</th>
+                            <th class="py-2.5 px-3 font-bold">QoS</th>
+                            <th class="py-2.5 px-3 font-bold">MIR Sim</th>
+                            <th class="py-2.5 px-3 font-bold">CIR Sim</th>
+                            <th class="py-2.5 px-3 font-bold">Desvío CIR</th>
+                            <th class="py-2.5 px-3 font-bold">RTT (ms)</th>
+                            <th class="py-2.5 px-3 font-bold">Pérdida</th>
+                            <th class="py-2.5 px-3 font-bold">Gen/Cons (kWh)</th>
+                            <th class="py-2.5 px-3 font-bold">Estado KPI</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-slate-200 mono"></tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="max-w-7xl mx-auto px-4 py-5 text-center text-xs text-slate-500">
+        UNAD • Proyecto de Ingeniería I (202337120) • Prototipo Simulado de Bajo Nivel • Arquitectura Híbrida Satelital LEO + Wi-Fi Mesh + Fotovoltaica
+    </footer>
+
+    <script>
+        let nodesState = { 1: true, 2: true, 3: true, 4: true };
+        let qosActive = true;
+        let timerId = null;
+        let scatterChart, energyChart;
+        let latestData = {};
+        let runsLog = [];
+
+        function toggleNode(id) {
+            const activeCount = Object.values(nodesState).filter(Boolean).length;
+            if (nodesState[id] && activeCount === 1) return;
+            nodesState[id] = !nodesState[id];
+            updateAll();
+        }
+
+        function toggleQoS() {
+            qosActive = !qosActive;
+            updateAll();
+        }
+
+        function toggleDayCycle() {
+            const btn = document.getElementById('btn-play');
+            if (timerId) {
+                clearInterval(timerId);
+                timerId = null;
+                btn.innerHTML = '<i class="fa-solid fa-play mr-1"></i> Simular Ciclo 24h';
+                btn.classList.replace('bg-rose-600', 'bg-emerald-600');
+            } else {
+                btn.innerHTML = '<i class="fa-solid fa-pause mr-1"></i> Pausar Ciclo 24h';
+                btn.classList.replace('bg-emerald-600', 'bg-rose-600');
+                timerId = setInterval(() => {
+                    const slider = document.getElementById('in-hour');
+                    slider.value = (parseInt(slider.value) + 1) % 24;
+                    updateAll();
+                }, 750);
+            }
+        }
+
+        function setPreset(type) {
+            if (type === 'nominal') {
+                nodesState = { 1: true, 2: true, 3: true, 4: true };
+                qosActive = true;
+                document.getElementById('in-users').value = 40;
+                document.getElementById('in-hour').value = 12;
+                document.getElementById('in-hsp').value = 4.5;
+            } else if (type === 'congestion') {
+                nodesState = { 1: true, 2: true, 3: true, 4: true };
+                qosActive = true;
+                document.getElementById('in-users').value = 52;
+                document.getElementById('in-hour').value = 15;
+                document.getElementById('in-hsp').value = 4.5;
+            } else if (type === 'cloud') {
+                nodesState = { 1: true, 2: true, 3: true, 4: true };
+                qosActive = true;
+                document.getElementById('in-users').value = 40;
+                document.getElementById('in-hour').value = 14;
+                document.getElementById('in-hsp').value = 2.2;
+            }
+            updateAll();
+        }
+
+        function computeMetrics() {
+            const users = parseInt(document.getElementById('in-users').value);
+            const hour = parseInt(document.getElementById('in-hour').value);
+            const hsp = parseFloat(document.getElementById('in-hsp').value);
+            const activeNodes = Object.values(nodesState).filter(Boolean).length;
+
+            const meshFactor = activeNodes === 4 ? 0.964 : (activeNodes === 3 ? 0.89 : (activeNodes === 2 ? 0.77 : 0.60));
+            const effectiveMbps = 200 * meshFactor;
+
+            let expMir, expCir;
+            if (qosActive) {
+                expMir = +Math.min(5.0, (effectiveMbps / users)).toFixed(2);
+                expCir = +(expMir / 4).toFixed(2);
+            } else {
+                expMir = +Math.min(28.0, (effectiveMbps / Math.max(4, users * 0.25))).toFixed(2);
+                expCir = +(effectiveMbps / (users * 9.5)).toFixed(2);
+            }
+
+            const devMirPct = +(((expMir - 5.0) / 5.0) * 100).toFixed(1);
+            const devCirPct = +(((expCir - 1.25) / 1.25) * 100).toFixed(1);
+
+            const qosPenalty = qosActive ? 0 : (users * 0.28);
+            const hopPenalty = (4 - activeNodes) * 3.6;
+            const rtt = +(28.0 + (users / 40) * 7.2 + hopPenalty + qosPenalty).toFixed(1);
+
+            const loss = +(0.15 + Math.pow(users / 45, 2) * 0.28 + (4 - activeNodes) * 0.35 + (qosActive ? 0 : 0.85)).toFixed(2);
+
+            const totalW = 100 + 15 + (activeNodes * 12);
+            const edKwh = +((totalW * 24) / 1000).toFixed(2);
+            const genKwh = +(1.45 * hsp * 0.75).toFixed(2);
+            const enBalancePct = +(((genKwh - edKwh) / edKwh) * 100).toFixed(1);
+
+            const autonomyH = +(3.84 / (totalW / 1000)).toFixed(1);
+
+            const solarCurve = [0,0,0,0,0,0, 0.06,0.22,0.48,0.78,1.02,1.16, 1.18,1.08,0.88,0.62,0.30,0.08, 0,0,0,0,0,0];
+            const scale = (1.45 * hsp) / (1.45 * 4.5);
+            const hourlySolar = solarCurve.map(v => +(v * scale).toFixed(2));
+
+            let socArr = [];
+            let currentSoc = 84.0;
+            for (let h = 0; h < 24; h++) {
+                const netKw = (hourlySolar[h] * 0.88) - (totalW / 1000);
+                currentSoc = Math.min(100, Math.max(20, currentSoc + (netKw / 4.8) * 100));
+                socArr.push(+currentSoc.toFixed(1));
+            }
+
+            const currentSocHour = socArr[hour];
+            const uptimeEst = +(99.6 - (4 - activeNodes) * 0.45 - (loss > 1 ? 0.9 : 0)).toFixed(1);
+            const allOk = (expCir >= 1.15) && (rtt < 40) && (loss < 1.0) && (genKwh >= edKwh) && activeNodes >= 3;
+
+            return {
+                users, hour, hsp, activeNodes, qosActive,
+                expMir, expCir, devMirPct, devCirPct,
+                rtt, loss, totalW, edKwh, genKwh, enBalancePct, autonomyH,
+                hourlySolar, socArr, currentSocHour, uptimeEst, allOk
+            };
+        }
+
+        function updateAll() {
+            const d = computeMetrics();
+            latestData = d;
+
+            document.getElementById('lbl-users').innerText = `${d.users} dispositivos`;
+            document.getElementById('lbl-hour').innerText = `${String(d.hour).padStart(2, '0')}:00 h`;
+            document.getElementById('lbl-hsp').innerText = `${d.hsp.toFixed(1)} h/día`;
+
+            const btnQos = document.getElementById('btn-qos');
+            btnQos.innerText = d.qosActive ? 'ACTIVADO' : 'DESACTIVADO';
+            btnQos.className = `px-3 py-1.5 rounded-lg text-white text-xs font-bold ${d.qosActive ? 'bg-emerald-600' : 'bg-rose-600'}`;
+
+            [1, 2, 3, 4].forEach(id => {
+                const on = nodesState[id];
+                document.getElementById(`node${id}-box`).setAttribute('stroke', on ? '#10b981' : '#ef4444');
+                document.getElementById(`node${id}-box`).setAttribute('fill', on ? '#0f172a' : '#2a1215');
+                const st = document.getElementById(`node${id}-st`);
+                st.textContent = on ? '● ON (12 W)' : '✕ OFF (0 W)';
+                st.setAttribute('fill', on ? '#34d399' : '#f87171');
+            });
+
+            document.getElementById('link-gw-n1').setAttribute('stroke', nodesState[1] ? '#10b981' : '#475569');
+            document.getElementById('link-gw-n2').setAttribute('stroke', nodesState[2] ? '#10b981' : '#475569');
+            document.getElementById('link-n1-n3').setAttribute('stroke', (nodesState[1] && nodesState[3]) ? '#10b981' : '#475569');
+            document.getElementById('link-n2-n4').setAttribute('stroke', (nodesState[2] && nodesState[4]) ? '#10b981' : '#475569');
+
+            document.getElementById('gw-box').setAttribute('stroke', d.qosActive ? '#10b981' : '#f59e0b');
+            document.getElementById('qos-pill-svg').setAttribute('fill', d.qosActive ? '#065f46' : '#78350f');
+            document.getElementById('qos-text-svg').textContent = d.qosActive ? 'QoS: ACTIVO (4:1)' : 'QoS: SIN CONTROL';
+            document.getElementById('gw-mir-svg').textContent = `MIR: ${d.expMir.toFixed(2)} Mbps`;
+            document.getElementById('gw-cir-svg').textContent = `CIR: ${d.expCir.toFixed(2)} Mbps`;
+
+            document.getElementById('svg-pv-cap').textContent = `1.45 kWp • ${d.hsp.toFixed(1)} HSP`;
+            document.getElementById('svg-pv-gen').textContent = `Gen: ${d.genKwh.toFixed(2)} kWh/día`;
+            document.getElementById('svg-bat-soc').textContent = `SOC (${String(d.hour).padStart(2,'0')}h): ${d.currentSocHour}% • ${d.autonomyH}h`;
+            document.getElementById('svg-load-w').textContent = `Potencia: ${d.totalW} W`;
+            document.getElementById('svg-load-ed').textContent = `Ed: ${d.edKwh.toFixed(2)} kWh/día`;
+
+            document.getElementById('kpi-mir').innerText = `${d.expMir.toFixed(2)} Mbps`;
+            document.getElementById('kpi-mir-dev').innerText = `Desvío vs 5.00: ${d.devMirPct > 0 ? '+' : ''}${d.devMirPct}%`;
+
+            document.getElementById('kpi-cir').innerText = `${d.expCir.toFixed(2)} Mbps`;
+            const cirDev = document.getElementById('kpi-cir-dev');
+            cirDev.innerText = `Desvío vs 1.25: ${d.devCirPct > 0 ? '+' : ''}${d.devCirPct}%`;
+            cirDev.className = `text-[11px] font-semibold mt-1 mono ${d.expCir >= 1.15 ? 'text-emerald-600' : 'text-rose-600'}`;
+
+            document.getElementById('kpi-rtt').innerText = `${d.rtt.toFixed(1)} ms`;
+            const rttDev = document.getElementById('kpi-rtt-dev');
+            rttDev.innerText = d.rtt < 40 ? `✓ Cumple (< 40 ms)` : `⚠ Supera límite (+${(d.rtt - 40).toFixed(1)} ms)`;
+            rttDev.className = `text-[11px] font-semibold mt-1 mono ${d.rtt < 40 ? 'text-emerald-600' : 'text-rose-600'}`;
+
+            document.getElementById('kpi-loss').innerText = `${d.loss.toFixed(2)} %`;
+            const lossDev = document.getElementById('kpi-loss-dev');
+            lossDev.innerText = d.loss < 1.0 ? `✓ Uptime est: ${d.uptimeEst}%` : `⚠ Pérdida > 1.0%`;
+            lossDev.className = `text-[11px] font-semibold mt-1 mono ${d.loss < 1.0 ? 'text-emerald-600' : 'text-rose-600'}`;
+
+            document.getElementById('kpi-gen').innerText = `${d.genKwh.toFixed(2)} kWh/d`;
+            const enDev = document.getElementById('kpi-en-dev');
+            enDev.innerText = `${d.enBalancePct >= 0 ? 'Superávit' : 'Déficit'}: ${d.enBalancePct > 0 ? '+' : ''}${d.enBalancePct}%`;
+            enDev.className = `text-[11px] font-semibold mt-1 mono ${d.genKwh >= d.edKwh ? 'text-emerald-600' : 'text-amber-600'}`;
+
+            const pill = document.getElementById('status-pill');
+            const diagBox = document.getElementById('live-diagnosis');
+            const diagText = document.getElementById('diagnosis-text');
+
+            if (d.allOk) {
+                pill.innerText = '● SISTEMA ÓPTIMO (TODOS LOS KPIs EN META)';
+                pill.className = 'px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300';
+                diagBox.className = 'bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs text-emerald-950 space-y-1';
+                diagText.innerText = `Operación estable con ${d.users} usuarios y ${d.activeNodes}/4 nodos Mesh activos. El Gateway asegura CIR de ${d.expCir} Mbps y RTT de ${d.rtt} ms (< 40 ms). La generación solar (${d.genKwh} kWh/d) cubre la demanda (${d.edKwh} kWh/d).`;
+            } else {
+                pill.innerText = '▲ DESVÍO DETECTADO (REVISAR RED O ENERGÍA)';
+                pill.className = 'px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300';
+                diagBox.className = 'bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-950 space-y-1';
+                let reasons = [];
+                if (!d.qosActive) reasons.push('QoS desactivado: usuarios pesados degradan el CIR a ' + d.expCir + ' Mbps');
+                if (d.activeNodes < 4) reasons.push(`Falla en ${4 - d.activeNodes} nodo(s) Mesh: enrutamiento HWMP activo pero sube RTT a ${d.rtt} ms`);
+                if (d.rtt >= 40) reasons.push(`Congestión por ${d.users} usuarios eleva RTT a ${d.rtt} ms (> 40 ms)`);
+                if (d.genKwh < d.edKwh) reasons.push(`Baja irradiación (${d.hsp} HSP): generación (${d.genKwh} kWh/d) menor al consumo, operando con respaldo de batería (${d.autonomyH} h)`);
+                diagText.innerText = reasons.join('. ') + '.';
+            }
+
+            document.getElementById('chart-w-lbl').innerText = `${d.totalW} W`;
+            updateCharts(d);
+        }
+
+        function initCharts() {
+            const ctxScatter = document.getElementById('scatterChart').getContext('2d');
+            scatterChart = new Chart(ctxScatter, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Muestras Experimentales RTT (ms)',
+                            data: [],
+                            backgroundColor: '#059669',
+                            pointRadius: 5
+                        },
+                        {
+                            label: 'Punto Operativo Actual',
+                            data: [],
+                            backgroundColor: '#e11d48',
+                            pointRadius: 8,
+                            pointStyle: 'rectRot'
+                        },
+                        {
+                            type: 'line',
+                            label: 'Umbral Máximo KPI (40 ms)',
+                            data: [{ x: 0, y: 40 }, { x: 65, y: 40 }],
+                            borderColor: '#ef4444',
+                            borderDash: [6, 6],
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { title: { display: true, text: 'Usuarios Concurrentes (dispositivos)' }, min: 0, max: 65 },
+                        y: { title: { display: true, text: 'Latencia RTT (ms)' }, min: 20, max: 65 }
+                    }
+                }
+            });
+
+            const ctxEnergy = document.getElementById('energyChart').getContext('2d');
+            energyChart = new Chart(ctxEnergy, {
+                type: 'bar',
+                data: {
+                    labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}h`),
+                    datasets: [
+                        {
+                            type: 'line',
+                            label: 'Estado Batería 24V (%)',
+                            data: [],
+                            borderColor: '#059669',
+                            backgroundColor: 'rgba(5,150,105,0.1)',
+                            yAxisID: 'y1',
+                            tension: 0.3
+                        },
+                        {
+                            type: 'bar',
+                            label: 'Potencia Solar Generada (kW)',
+                            data: [],
+                            backgroundColor: 'rgba(245, 158, 11, 0.75)',
+                            yAxisID: 'y'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: true, max: 1.5, position: 'left', title: { display: true, text: 'Generación (kW)' } },
+                        y1: { beginAtZero: true, max: 110, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Batería (%)' } }
+                    }
+                }
+            });
+        }
+
+        function updateCharts(d) {
+            if (!scatterChart || !energyChart) return;
+            const qosPenaltyFactor = d.qosActive ? 0 : 0.28;
+            const hopPenalty = (4 - d.activeNodes) * 3.6;
+            const samples = [5, 12, 20, 30, 40, 48, 55, 60];
+
+            scatterChart.data.datasets[0].data = samples.map(u => ({
+                x: u,
+                y: +(28.0 + (u / 40) * 7.2 + hopPenalty + (u * qosPenaltyFactor)).toFixed(1)
+            }));
+            scatterChart.data.datasets[1].data = [{ x: d.users, y: d.rtt }];
+            scatterChart.update();
+
+            energyChart.data.datasets[0].data = d.socArr;
+            energyChart.data.datasets[1].data = d.hourlySolar;
+            energyChart.update();
+        }
+
+        function addCurrentRun() {
+            const d = latestData;
+            let label = 'Diseño Base (Etapa 3)';
+            if (!d.qosActive) label = 'Sin Control QoS';
+            else if (d.activeNodes < 4) label = `Falla Nodo (${d.activeNodes}/4 Mesh)`;
+            else if (d.users > 40) label = `Alta Concurrencia (${d.users} usr)`;
+            else if (d.hsp < 3.5) label = `Baja Irradiación (${d.hsp} HSP)`;
+
+            runsLog.push({ ...d, label });
+            renderRunsTable();
+        }
+
+        function renderRunsTable() {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+            runsLog.forEach((r, idx) => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50';
+                tr.innerHTML = `
+                    <td class="py-2 px-3 font-bold">${idx + 1}</td>
+                    <td class="py-2 px-3">${r.label}</td>
+                    <td class="py-2 px-3">${r.users}</td>
+                    <td class="py-2 px-3">${r.activeNodes}/4</td>
+                    <td class="py-2 px-3">${r.qosActive ? 'ON (4:1)' : 'OFF'}</td>
+                    <td class="py-2 px-3">${r.expMir.toFixed(2)} Mbps</td>
+                    <td class="py-2 px-3 font-bold">${r.expCir.toFixed(2)} Mbps</td>
+                    <td class="py-2 px-3 ${r.devCirPct < -10 ? 'text-rose-600 font-bold' : ''}">${r.devCirPct > 0 ? '+' : ''}${r.devCirPct}%</td>
+                    <td class="py-2 px-3 ${r.rtt >= 40 ? 'text-rose-600 font-bold' : ''}">${r.rtt.toFixed(1)}</td>
+                    <td class="py-2 px-3 ${r.loss >= 1 ? 'text-rose-600 font-bold' : ''}">${r.loss.toFixed(2)}%</td>
+                    <td class="py-2 px-3">${r.genKwh.toFixed(2)} / ${r.edKwh.toFixed(2)}</td>
+                    <td class="py-2 px-3">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.allOk ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}">
+                            ${r.allOk ? 'CUMPLE' : 'DESVÍO'}
+                        </span>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function downloadCSV() {
+            if (!runsLog.length) return;
+            const header = ['Corrida','Escenario','Usuarios','Nodos_Mesh','QoS','MIR_Mbps','CIR_Mbps','Desvio_CIR_Pct','RTT_ms','Perdida_Pct','Generacion_kWh','Consumo_kWh','Estado'];
+            const lines = runsLog.map((r, i) => [
+                i + 1, r.label, r.users, r.activeNodes, r.qosActive ? 'ON' : 'OFF',
+                r.expMir, r.expCir, r.devCirPct, r.rtt, r.loss, r.genKwh, r.edKwh,
+                r.allOk ? 'CUMPLE' : 'DESVIO'
+            ]);
+            const csv = [header.join(','), ...lines.map(row => row.join(','))].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'matriz_experimental_etapa4_luisa.csv';
+            a.click();
+        }
+
+        window.onload = () => {
+            initCharts();
+            updateAll();
+            setPreset('nominal'); addCurrentRun();
+            setPreset('congestion'); addCurrentRun();
+            toggleNode(3); addCurrentRun();
+            toggleNode(3); toggleQoS(); addCurrentRun();
+            toggleQoS(); setPreset('cloud'); addCurrentRun();
+            setPreset('nominal');
+        };
+    </script>
+</body>
+</html>
